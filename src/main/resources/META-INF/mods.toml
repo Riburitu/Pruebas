@@ -1,0 +1,26 @@
+# mods.toml
+
+modLoader="javafml"
+loaderVersion="[47,)" # Compatible con Forge 1.20.1 y superior
+license="MIT"
+
+[[mods]]
+modId="RegionVisualizer-NEW"               # MOD_ID único para tu mod MusicZone
+version="1.0.0"
+displayName="RegionVisualizer NEW"
+authors="Riburitu"
+description='''Mod sobre regiones con músicas, a partir de comandos y un item llamado Region Selector. Una mejora del mod anterior...'''
+
+[[dependencies.regionvisualizer]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.regionvisualizer]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="BOTH"
