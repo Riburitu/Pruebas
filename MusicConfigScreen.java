@@ -1,20 +1,32 @@
 package com.riburitu.regionvisualizer.client.sound;
 
+import java.awt.TextComponent;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+import com.riburitu.regionvisualizer.client.sound.MusicManager.MusicFileInfo;
+
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.resources.sounds.AbstractSoundInstance;
+import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.network.chat.Component;
-import net.minecraft.client.Minecraft;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.stream.Collectors;
-import java.io.File;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundSource;
 
 public class MusicConfigScreen extends Screen {
     private static final int PANEL_WIDTH = 300;
@@ -47,23 +59,22 @@ public class MusicConfigScreen extends Screen {
     }
 
     @Override
-    protected void init() {
-        int leftPanelX = PADDING;
-        int rightPanelX = leftPanelX + PANEL_WIDTH + PADDING * 2;
-        int rightPanelWidth = this.width - rightPanelX - PADDING;
-        
-        // Panel izquierdo - Lista de archivos de música
-        setupMusicFileList(leftPanelX);
-        
-        // Panel derecho - Controles
-        setupControlPanel(rightPanelX, rightPanelWidth);
-        
-        // Botones inferiores
-        setupBottomButtons();
-        
-        // Cargar archivos al inicializar
-        loadMusicFiles();
+    public void init() {
+        super.init();
+        MusicManager.initialize();
+        List<MusicFileInfo> musicFiles = MusicManager.getMusicFilesList();
+        int yOffset = 10;
+        for (MusicFileInfo musicFile : musicFiles) {
+            String buttonText = musicFile.getDisplayName().replace(".ogg", "").replace(".wav", "");
+            addRenderableWidget(new Button(this.width / 2 - 100, yOffset, 200, 20, new TextComponent(buttonText), button -> {
+                MusicManager.play(musicFile);
+            }));
+            yOffset += 30;
+        }
     }
+
+
+
 
     private void setupMusicFileList(int x) {
         int listHeight = this.height - 100;
@@ -90,7 +101,7 @@ public class MusicConfigScreen extends Screen {
             Component.literal("🔄 Refresh"),
             button -> {
                 System.out.println("[MusicConfig] Botón refresh presionado");
-                loadMusicFiles();
+                getMusicFiles();
                 if (minecraft.player != null) {
                     minecraft.player.sendSystemMessage(
                         Component.literal("🔄 Lista actualizada").withStyle(ChatFormatting.GREEN)
@@ -336,7 +347,7 @@ public class MusicConfigScreen extends Screen {
             button -> {
                 System.out.println("[MusicConfig] Reinicializando sistema...");
                 MusicManager.forceInitialize();
-                loadMusicFiles();
+                getMusicFiles();
                 if (minecraft.player != null) {
                     minecraft.player.sendSystemMessage(
                         Component.literal("🔄 Sistema reinicializado").withStyle(ChatFormatting.GREEN)
@@ -379,170 +390,17 @@ public class MusicConfigScreen extends Screen {
         System.out.println("[MusicConfig] Modo avanzado: " + (showAdvanced ? "ACTIVADO" : "DESACTIVADO"));
     }
 
-    private void loadMusicFiles() {
-        System.out.println("[MusicConfig] === INICIANDO CARGA DE ARCHIVOS ===");
-        
-        // Limpiar lista actual
-        if (musicFileList != null) {
-            try {
-                musicFileList.clearMusicFiles();
-                System.out.println("[MusicConfig] Lista limpiada");
-            } catch (Exception e) {
-                System.err.println("[MusicConfig] Error limpiando lista: " + e.getMessage());
-                recreateMusicFileList();
-            }
+    private List<File> getMusicFiles() {
+        File musicFolder = new File(Minecraft.getInstance().gameDirectory, "music");
+        if (!musicFolder.exists() || !musicFolder.isDirectory()) {
+            return Collections.emptyList();
         }
-        
-        try {
-            // Verificar que MusicManager esté inicializado
-            if (!MusicManager.isSystemHealthy()) {
-                System.out.println("[MusicConfig] Sistema no saludable, inicializando...");
-                MusicManager.forceInitialize();
-                Thread.sleep(200); // Esperar inicialización
-            }
-            
-            // Obtener la carpeta de música
-            File gameDir = Minecraft.getInstance().gameDirectory;
-            Path musicFolder = Paths.get(gameDir.getAbsolutePath(), "music");
-            
-            System.out.println("[MusicConfig] Carpeta de música: " + musicFolder.toAbsolutePath());
-            System.out.println("[MusicConfig] Carpeta existe: " + Files.exists(musicFolder));
-            
-            if (!Files.exists(musicFolder)) {
-                System.out.println("[MusicConfig] Creando carpeta de música...");
-                Files.createDirectories(musicFolder);
-                
-                musicFileList.addMusicFile(
-                    "📁 Carpeta creada", 
-                    "Coloca archivos .wav/.ogg aquí", 
-                    false, 
-                    "info"
-                );
-                return;
-            }
-            
-            // Lógica de listado mejorada
-            List<Path> allFiles = new ArrayList<>();
-            List<Path> audioFiles = new ArrayList<>();
-            
-            System.out.println("[MusicConfig] === LISTANDO CONTENIDO DE LA CARPETA ===");
-            
-            try {
-                Files.list(musicFolder).forEach(path -> {
-                    try {
-                        String name = path.getFileName().toString();
-                        boolean isFile = Files.isRegularFile(path);
-                        long size = isFile ? Files.size(path) : 0;
-                        
-                        System.out.println("[MusicConfig] Encontrado: " + name + 
-                            " (file: " + isFile + ", size: " + size + ")");
-                        
-                        allFiles.add(path);
-                        
-                        // Verificar si es archivo de audio
-                        if (isFile) {
-                            String lowerName = name.toLowerCase();
-                            if (lowerName.endsWith(".wav") || lowerName.endsWith(".ogg")) {
-                                System.out.println("[MusicConfig] ✅ Es archivo de audio: " + name);
-                                audioFiles.add(path);
-                            } else {
-                                System.out.println("[MusicConfig] ❌ No es archivo de audio: " + name);
-                            }
-                        }
-                        
-                    } catch (Exception e) {
-                        System.err.println("[MusicConfig] Error procesando archivo: " + path.getFileName() + " - " + e.getMessage());
-                    }
-                });
-                
-            } catch (Exception e) {
-                System.err.println("[MusicConfig] ERROR crítico listando carpeta: " + e.getMessage());
-                e.printStackTrace();
-                
-                musicFileList.addMusicFile(
-                    "❌ Error accediendo carpeta", 
-                    e.getMessage(), 
-                    false, 
-                    "error"
-                );
-                return;
-            }
-            
-            System.out.println("[MusicConfig] === RESUMEN ===");
-            System.out.println("[MusicConfig] Total archivos encontrados: " + allFiles.size());
-            System.out.println("[MusicConfig] Archivos de audio: " + audioFiles.size());
-            
-            if (audioFiles.isEmpty()) {
-                musicFileList.addMusicFile(
-                    "📂 Sin archivos de música", 
-                    "Se encontraron " + allFiles.size() + " archivos, pero ninguno es .wav/.ogg", 
-                    false, 
-                    "empty"
-                );
-                
-                musicFileList.addMusicFile(
-                    "💡 Ayuda", 
-                    "Coloca archivos .wav o .ogg en la carpeta music", 
-                    false, 
-                    "info"
-                );
-            } else {
-                // Ordenar archivos por nombre
-                audioFiles.sort((p1, p2) -> 
-                    p1.getFileName().toString().compareToIgnoreCase(p2.getFileName().toString()));
-                
-                // Procesar cada archivo de audio
-                for (Path file : audioFiles) {
-                    String filename = file.getFileName().toString();
-                    System.out.println("[MusicConfig] Procesando: " + filename);
-                    
-                    try {
-                        // Obtener información básica
-                        long size = Files.size(file);
-                        String extension = getFileExtension(filename).toUpperCase();
-                        String sizeStr = formatFileSize(size);
-                        
-                        // Verificar compatibilidad usando testFile
-                        boolean supported = false;
-                        try {
-                            supported = MusicManager.testFile(filename);
-                            System.out.println("[MusicConfig] " + filename + " compatible: " + supported);
-                        } catch (Exception e) {
-                            System.err.println("[MusicConfig] Error testando " + filename + ": " + e.getMessage());
-                        }
-                        
-                        String info = extension + " • " + sizeStr + (supported ? " • ✅" : " • ❌");
-                        
-                        musicFileList.addMusicFile(filename, info, supported, extension.toLowerCase());
-                        
-                    } catch (Exception e) {
-                        System.err.println("[MusicConfig] Error procesando " + filename + ": " + e.getMessage());
-                        musicFileList.addMusicFile(
-                            filename, 
-                            "Error: " + e.getMessage(), 
-                            false, 
-                            "error"
-                        );
-                    }
-                }
-                
-                System.out.println("[MusicConfig] ✅ Carga completada: " + audioFiles.size() + " archivos añadidos a la lista");
-            }
-            
-        } catch (Exception e) {
-            System.err.println("[MusicConfig] ERROR CRÍTICO en loadMusicFiles: " + e.getMessage());
-            e.printStackTrace();
-            
-            if (musicFileList != null) {
-                musicFileList.addMusicFile(
-                    "❌ Error crítico", 
-                    "Ver consola para detalles", 
-                    false, 
-                    "error"
-                );
-            }
-        }
+
+        return Arrays.stream(Objects.requireNonNull(musicFolder.listFiles()))
+                     .filter(file -> file.isFile() && file.getName().endsWith(".ogg"))
+                     .collect(Collectors.toList());
     }
+
 
     private void debugMusicPath() {
         System.out.println("=== DEBUG MUSIC PATH ===");
